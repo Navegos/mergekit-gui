@@ -101,6 +101,8 @@ def merge(
         if return_code:
             raise gr.Error(f"subprocess error: {return_code}")
 
+        ## TODO(implement upload at the end of the merge, and display the repo URL)
+
 
 demo = gr.Interface(
     description=MARKDOWN_DESCRIPTION,
