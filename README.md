@@ -1,6 +1,6 @@
 ---
 title: mergekit-gui
-emoji: 🏆
+emoji: 🔀
 colorFrom: yellow
 colorTo: yellow
 sdk: gradio
