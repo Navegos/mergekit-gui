@@ -1,8 +1,8 @@
 ---
-title: Mergekit Gui
+title: mergekit-gui
 emoji: 🏆
 colorFrom: yellow
-colorTo: gray
+colorTo: yellow
 sdk: gradio
 sdk_version: 4.24.0
 app_file: app.py

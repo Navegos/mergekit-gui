@@ -1,0 +1,2 @@
+torch
+git+https://github.com/arcee-ai/mergekit.git
