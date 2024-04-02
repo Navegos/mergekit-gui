@@ -130,6 +130,7 @@ demo = gr.Interface(
     allow_flagging="never",
     submit_btn="Merge",
     examples=examples,
+    cache_examples=False,
 ).queue(default_concurrency_limit=1)
 
 
