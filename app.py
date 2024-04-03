@@ -77,10 +77,14 @@ def merge(
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = pathlib.Path(tmpdirname)
-        with open(tmpdir / "config.yaml", "w", encoding="utf-8") as f:
-            f.write(yaml_config)
 
-        yield from LogsView.run_process(f"cd {tmpdir} && {cli}".split())
+        config_path = tmpdir / "config.yaml"
+        config_path.write_text(yaml_config)
+
+        cmd = f"cd {tmpdir} && {cli}"
+        print(cmd)
+        print(tmpdir.is_dir())
+        yield from LogsView.run_process(cmd.split())
 
         ## TODO(implement upload at the end of the merge, and display the repo URL)
 
