@@ -62,7 +62,7 @@ A quick overview of the currently supported merge methods:
 
 """
 
-examples = [[f.name, f.read_text()] for f in pathlib.Path("examples").glob("*.yml")]
+examples = [[str(f)] for f in pathlib.Path("examples").glob("*.yml")]
 
 
 def merge(
@@ -111,7 +111,8 @@ with gr.Blocks() as demo:
             )
     button = gr.Button("Merge", variant="primary")
     logs = LogsView()
-    gr.Examples(examples, label="Examples", inputs=[filename, config], outputs=[logs])
+    gr.Examples(examples, fn=lambda s: (s,), run_on_click=True,
+                label="Examples", inputs=[filename], outputs=[config])
     gr.Markdown(MARKDOWN_ARTICLE)
 
     button.click(fn=merge, inputs=[filename, config, token, repo_name], outputs=[logs])
