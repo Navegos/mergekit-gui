@@ -81,10 +81,7 @@ def merge(
         config_path = tmpdir / "config.yaml"
         config_path.write_text(yaml_config)
 
-        cmd = f"cd {tmpdir} && {cli}"
-        print(cmd)
-        print(tmpdir.is_dir())
-        yield from LogsView.run_process(cmd.split())
+        yield from LogsView.run_process(cli.split(), cwd=tmpdir)
 
         ## TODO(implement upload at the end of the merge, and display the repo URL)
 
