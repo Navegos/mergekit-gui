@@ -1,9 +1,8 @@
 import pathlib
-import subprocess
 import tempfile
 from typing import Generator
+
 import gradio as gr
-import huggingface_hub
 import torch
 import yaml
 from gradio_logsview import LogsView
@@ -69,54 +68,51 @@ examples = [[f.name, f.read_text()] for f in pathlib.Path("examples").glob("*.ym
 def merge(
     example_filename: str, yaml_config: str, hf_token: str, repo_name: str
 ) -> Generator[str, None, None]:
-    output = ""
     if not yaml_config:
         raise gr.Error("Empty yaml, pick an example below")
     try:
         _ = yaml.safe_load(yaml_config)
-    except:
-        raise gr.Error("Invalid yaml")
+    except Exception as e:
+        raise gr.Error(f"Invalid yaml {e}")
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = pathlib.Path(tmpdirname)
         with open(tmpdir / "config.yaml", "w", encoding="utf-8") as f:
             f.write(yaml_config)
-        
+
         yield from LogsView.run_process(cli.split())
 
         ## TODO(implement upload at the end of the merge, and display the repo URL)
 
 
-demo = gr.Interface(
-    description=MARKDOWN_DESCRIPTION,
-    article=MARKDOWN_ARTICLE,
-    fn=merge,
-    inputs=[
-        gr.Textbox(visible=False, label="filename"),
-        gr.Code(
+with gr.Blocks() as demo:
+    gr.Markdown(MARKDOWN_DESCRIPTION)
+
+    with gr.Row():
+        filename = gr.Textbox(visible=False, label="filename")
+        config = gr.Code(
             language="yaml",
             lines=10,
             label="config.yaml",
-        ),
-        gr.Textbox(
-            lines=1,
-            label="HF Write Token",
-            info="https://hf.co/settings/token",
-            type="password",
-            placeholder="optional, will not upload merge if empty (dry-run)",
-        ),
-        gr.Textbox(
-            lines=1,
-            label="Repo name",
-            placeholder="optional, will create a random name if empty",
-        ),
-    ],
-    outputs=LogsView(),
-    allow_flagging="never",
-    submit_btn="Merge",
-    examples=examples,
-    cache_examples=False,
-).queue(default_concurrency_limit=1)
+        )
+        with gr.Column():
+            token = gr.Textbox(
+                lines=1,
+                label="HF Write Token",
+                info="https://hf.co/settings/token",
+                type="password",
+                placeholder="optional, will not upload merge if empty (dry-run)",
+            )
+            repo_name = gr.Textbox(
+                lines=1,
+                label="Repo name",
+                placeholder="optional, will create a random name if empty",
+            )
+    button = gr.Button("Merge", variant="primary")
+    logs = LogsView()
+    gr.Examples(examples, label="Examples", inputs=[filename, config], outputs=[logs])
+    gr.Markdown(MARKDOWN_ARTICLE)
 
+    button.click(fn=merge, inputs=[filename, config, token, repo_name], outputs=[logs])
 
-demo.launch()
+demo.queue(default_concurrency_limit=1).launch()
