@@ -6,6 +6,7 @@ import gradio as gr
 import huggingface_hub
 import torch
 import yaml
+from gradio_logsview import LogsView
 
 has_gpu = torch.cuda.is_available()
 
@@ -78,28 +79,10 @@ def merge(
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = pathlib.Path(tmpdirname)
-        output += f"About to start merging in directory {tmpdir}\n\n"
-        yield output
         with open(tmpdir / "config.yaml", "w", encoding="utf-8") as f:
             f.write(yaml_config)
-        output += cli + "\n\n"
-        yield output
-
-        cmd = cli.split()
-        popen = subprocess.Popen(
-            cmd,
-            cwd=tmpdir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True,
-        )
-        for stdout_line in iter(popen.stdout.readline, ""):
-            output += stdout_line
-            yield output
-        popen.stdout.close()
-        return_code = popen.wait()
-        if return_code:
-            raise gr.Error(f"subprocess error: {return_code}")
+        
+        yield from LogsView.run_process(cmd=cli.split())
 
         ## TODO(implement upload at the end of the merge, and display the repo URL)
 
@@ -128,7 +111,7 @@ demo = gr.Interface(
             placeholder="optional, will create a random name if empty",
         ),
     ],
-    outputs=gr.Textbox(label="output", lines=12, show_copy_button=True),
+    outputs=LogsView(),
     allow_flagging="never",
     submit_btn="Merge",
     examples=examples,
