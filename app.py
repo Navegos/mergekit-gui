@@ -1,22 +1,35 @@
+import logging
 import pathlib
 import tempfile
 from typing import Generator
 
 import gradio as gr
+import huggingface_hub
 import torch
 import yaml
-from gradio_logsview import LogsView
+from gradio_logsview.logsview import Log, LogsView
+from mergekit.common import parse_kmb
+from mergekit.merge import run_merge
+from mergekit.options import MergeOptions
 
 has_gpu = torch.cuda.is_available()
 
-cli = "mergekit-yaml config.yaml merge --copy-tokenizer" + (
-    " --cuda --low-cpu-memory"
+# Inspired by https://github.com/arcee-ai/mergekit/blob/main/mergekit/scripts/run_yaml.py
+merge_options = (
+    MergeOptions(
+        copy_tokenizer=True,
+        cuda=True,
+        low_cpu_memory=True,
+        write_model_card=True,
+    )
     if has_gpu
-    else " --allow-crimes --out-shard-size 1B --lazy-unpickle"
+    else MergeOptions(
+        allow_crimes=True,
+        out_shard_size=parse_kmb("1B"),
+        lazy_unpickle=True,
+        write_model_card=True,
+    )
 )
-
-print(cli)
-
 ## This Space is heavily inspired by LazyMergeKit by Maxime Labonne
 ## https://colab.research.google.com/drive/1obulZ1ROXHjYLn6PPZJwRR6GzgQogxxb
 
@@ -71,19 +84,31 @@ def merge(
     if not yaml_config:
         raise gr.Error("Empty yaml, pick an example below")
     try:
-        _ = yaml.safe_load(yaml_config)
+        merge_config = yaml.safe_load(yaml_config)
     except Exception as e:
         raise gr.Error(f"Invalid yaml {e}")
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = pathlib.Path(tmpdirname)
-
-        config_path = tmpdir / "config.yaml"
+        merged_path = tmpdir / "merged"
+        merged_path.mkdir(parents=True, exist_ok=True)
+        config_path = merged_path / "config.yaml"
         config_path.write_text(yaml_config)
 
-        yield from LogsView.run_process(cli.split(), cwd=tmpdir)
+        yield from LogsView.run_thread(
+            run_merge,
+            log_level=logging.INFO,
+            merge_config=merge_config,
+            out_path=merged_path,
+            options=merge_options,
+            config_source=config_path,
+        )
 
         ## TODO(implement upload at the end of the merge, and display the repo URL)
+        api = huggingface_hub.HfApi(token=hf_token)
+        repo_url = api.create_repo(repo_name, exist_ok=True)
+        api.upload_folder(repo_id=repo_url.repo_id, folder_path=merged_path)
+        print(repo_url)
 
 
 with gr.Blocks() as demo:
@@ -111,8 +136,14 @@ with gr.Blocks() as demo:
             )
     button = gr.Button("Merge", variant="primary")
     logs = LogsView()
-    gr.Examples(examples, fn=lambda s: (s,), run_on_click=True,
-                label="Examples", inputs=[filename], outputs=[config])
+    gr.Examples(
+        examples,
+        fn=lambda s: (s,),
+        run_on_click=True,
+        label="Examples",
+        inputs=[filename],
+        outputs=[config],
+    )
     gr.Markdown(MARKDOWN_ARTICLE)
 
     button.click(fn=merge, inputs=[filename, config, token, repo_name], outputs=[logs])
