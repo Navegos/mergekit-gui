@@ -7,7 +7,7 @@ import gradio as gr
 import huggingface_hub
 import torch
 import yaml
-from gradio_logsview.logsview import LogsView
+from gradio_logsview.logsview import LogsView, LogsViewRunner
 from mergekit.common import parse_kmb
 from mergekit.config import MergeConfiguration
 from mergekit.merge import run_merge
@@ -79,7 +79,7 @@ examples = [[str(f)] for f in pathlib.Path("examples").glob("*.yml")]
 
 
 def merge(
-    example_filename: str, yaml_config: str, hf_token: str, repo_name: str
+    example_filename: str, yaml_config: str, hf_token: str | None, repo_name: str | None
 ) -> Generator[str, None, None]:
     if not yaml_config:
         raise gr.Error("Empty yaml, pick an example below")
@@ -88,19 +88,27 @@ def merge(
     except Exception as e:
         raise gr.Error(f"Invalid yaml {e}")
 
+    runner = LogsViewRunner()
+
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = pathlib.Path(tmpdirname)
         merged_path = tmpdir / "merged"
         merged_path.mkdir(parents=True, exist_ok=True)
         config_path = merged_path / "config.yaml"
         config_path.write_text(yaml_config)
+        runner.log(f"Merge configuration saved in {config_path}")
 
-        if repo_name == "":
+        if token is not None and repo_name == "":
             name = "-".join(
                 model.model.path for model in merge_config.referenced_models()
             )
             repo_name = f"mergekit-{merge_config.merge_method}-{name}".replace("/", "-")
-            print(f"Will save in {repo_name}")
+            runner.log(f"Will save merged in {repo_name} once process is done.")
+
+        if token is None:
+            runner.log(
+                "No token provided, merge will run in dry-run mode (no upload at the end of the process)."
+            )
 
         # Taken from https://github.com/arcee-ai/mergekit/blob/main/mergekit/scripts/run_yaml.py
         yield from LogsView.run_thread(
@@ -112,11 +120,20 @@ def merge(
             config_source=config_path,
         )
 
-        # TODO: nicely display things
-        api = huggingface_hub.HfApi(token=hf_token)
-        repo_url = api.create_repo(repo_name, exist_ok=True)
-        api.upload_folder(repo_id=repo_url.repo_id, folder_path=merged_path)
-        print(repo_url)
+        if runner.error:
+            return
+
+        if hf_token is not None:
+            api = huggingface_hub.HfApi(token=hf_token)
+            runner.log("Creating repo")
+            repo_url = api.create_repo(repo_name, exist_ok=True)
+
+            runner.log(f"Repo created: {repo_url}")
+            folder_url = api.upload_folder(
+                repo_id=repo_url.repo_id, folder_path=merged_path
+            )
+
+            runner.log(f"Model successfully uploaded to {folder_url}")
 
 
 with gr.Blocks() as demo:
@@ -124,11 +141,7 @@ with gr.Blocks() as demo:
 
     with gr.Row():
         filename = gr.Textbox(visible=False, label="filename")
-        config = gr.Code(
-            language="yaml",
-            lines=10,
-            label="config.yaml",
-        )
+        config = gr.Code(language="yaml", lines=10, label="config.yaml")
         with gr.Column():
             token = gr.Textbox(
                 lines=1,

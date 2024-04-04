@@ -1,4 +1,4 @@
 torch
 git+https://github.com/arcee-ai/mergekit.git
 # see https://huggingface.co/spaces/Wauplin/gradio_logsview
-gradio_logsview@https://huggingface.co/spaces/Wauplin/gradio_logsview/resolve/main/gradio_logsview-0.0.2-py3-none-any.whl
+gradio_logsview@https://huggingface.co/spaces/Wauplin/gradio_logsview/resolve/main/gradio_logsview-0.0.3-py3-none-any.whl
