@@ -113,9 +113,9 @@ def merge(
         yield from runner.run_thread(
             run_merge,
             merge_config=merge_config,
-            out_path=merged_path,
+            out_path=str(merged_path),
             options=merge_options,
-            config_source=config_path,
+            config_source=str(config_path),
         )
 
         if runner.error:
