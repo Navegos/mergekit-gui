@@ -7,8 +7,9 @@ import gradio as gr
 import huggingface_hub
 import torch
 import yaml
-from gradio_logsview.logsview import Log, LogsView
+from gradio_logsview.logsview import LogsView
 from mergekit.common import parse_kmb
+from mergekit.config import MergeConfiguration
 from mergekit.merge import run_merge
 from mergekit.options import MergeOptions
 
@@ -83,7 +84,7 @@ def merge(
     if not yaml_config:
         raise gr.Error("Empty yaml, pick an example below")
     try:
-        merge_config = yaml.safe_load(yaml_config)
+        merge_config = MergeConfiguration.model_validate(yaml.safe_load(yaml_config))
     except Exception as e:
         raise gr.Error(f"Invalid yaml {e}")
 
@@ -93,6 +94,13 @@ def merge(
         merged_path.mkdir(parents=True, exist_ok=True)
         config_path = merged_path / "config.yaml"
         config_path.write_text(yaml_config)
+
+        if repo_name == "":
+            name = "-".join(
+                model.model.path for model in merge_config.referenced_models()
+            )
+            repo_name = f"mergekit-{merge_config.merge_method}-{name}".replace("/", "-")
+            print(f"Will save in {repo_name}")
 
         # Taken from https://github.com/arcee-ai/mergekit/blob/main/mergekit/scripts/run_yaml.py
         yield from LogsView.run_thread(
@@ -104,7 +112,7 @@ def merge(
             config_source=config_path,
         )
 
-        ## TODO(implement upload at the end of the merge, and display the repo URL)
+        # TODO: nicely display things
         api = huggingface_hub.HfApi(token=hf_token)
         repo_url = api.create_repo(repo_name, exist_ok=True)
         api.upload_folder(repo_id=repo_url.repo_id, folder_path=merged_path)
