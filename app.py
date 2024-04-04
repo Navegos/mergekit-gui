@@ -96,7 +96,7 @@ def merge(
         merged_path.mkdir(parents=True, exist_ok=True)
         config_path = merged_path / "config.yaml"
         config_path.write_text(yaml_config)
-        runner.log(f"Merge configuration saved in {config_path}")
+        yield runner.log(f"Merge configuration saved in {config_path}")
 
         if token is not None and repo_name == "":
             name = "-".join(
@@ -106,14 +106,13 @@ def merge(
             runner.log(f"Will save merged in {repo_name} once process is done.")
 
         if token is None:
-            runner.log(
+            yield runner.log(
                 "No token provided, merge will run in dry-run mode (no upload at the end of the process)."
             )
 
         # Taken from https://github.com/arcee-ai/mergekit/blob/main/mergekit/scripts/run_yaml.py
-        yield from LogsView.run_thread(
+        yield from runner.run_thread(
             run_merge,
-            log_level=logging.INFO,
             merge_config=merge_config,
             out_path=merged_path,
             options=merge_options,
@@ -125,15 +124,15 @@ def merge(
 
         if hf_token is not None:
             api = huggingface_hub.HfApi(token=hf_token)
-            runner.log("Creating repo")
+            yield runner.log("Creating repo")
             repo_url = api.create_repo(repo_name, exist_ok=True)
 
-            runner.log(f"Repo created: {repo_url}")
+            yield runner.log(f"Repo created: {repo_url}")
             folder_url = api.upload_folder(
                 repo_id=repo_url.repo_id, folder_path=merged_path
             )
 
-            runner.log(f"Model successfully uploaded to {folder_url}")
+            yield runner.log(f"Model successfully uploaded to {folder_url}")
 
 
 with gr.Blocks() as demo:
