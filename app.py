@@ -14,7 +14,6 @@ from mergekit.options import MergeOptions
 
 has_gpu = torch.cuda.is_available()
 
-# Inspired by https://github.com/arcee-ai/mergekit/blob/main/mergekit/scripts/run_yaml.py
 merge_options = (
     MergeOptions(
         copy_tokenizer=True,
@@ -95,6 +94,7 @@ def merge(
         config_path = merged_path / "config.yaml"
         config_path.write_text(yaml_config)
 
+        # Taken from https://github.com/arcee-ai/mergekit/blob/main/mergekit/scripts/run_yaml.py
         yield from LogsView.run_thread(
             run_merge,
             log_level=logging.INFO,
