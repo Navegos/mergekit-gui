@@ -101,7 +101,9 @@ def merge(
             name = "-".join(
                 model.model.path for model in merge_config.referenced_models()
             )
-            repo_name = f"mergekit-{merge_config.merge_method}-{name}".replace("/", "-")
+            repo_name = f"mergekit-{merge_config.merge_method}-{name}".replace("/", "-").strip("-")
+            if len(repo_name) > 50:
+                repo_name = repo_name[:25] + "-etc-" + repo_name[25:]
             runner.log(f"Will save merged in {repo_name} once process is done.")
 
         if token is None:
@@ -110,7 +112,7 @@ def merge(
             )
 
         # Taken from https://github.com/arcee-ai/mergekit/blob/main/mergekit/scripts/run_yaml.py
-        yield from runner.run_thread(
+        yield from runner.run_python(
             run_merge,
             merge_config=merge_config,
             out_path=str(merged_path),
@@ -118,7 +120,8 @@ def merge(
             config_source=str(config_path),
         )
 
-        if runner.error:
+        if runner.exit_code != 0:
+            yield runner.log("Merge failed. Terminating here. No model has been uploaded.")
             return
 
         if hf_token is not None:
