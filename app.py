@@ -134,16 +134,19 @@ def merge(
             return
 
         if hf_token is not None:
-            api = huggingface_hub.HfApi(token=hf_token)
-            yield runner.log("Creating repo")
-            repo_url = api.create_repo(repo_name, exist_ok=True)
 
-            yield runner.log(f"Repo created: {repo_url}")
-            folder_url = api.upload_folder(
-                repo_id=repo_url.repo_id, folder_path=merged_path
-            )
+            def upload_to_repo():
+                api = huggingface_hub.HfApi(token=hf_token)
+                print("Creating repo")
+                repo_url = api.create_repo(repo_name, exist_ok=True)
+                print(f"Repo created: {repo_url}")
+                print("Starting upload")
+                folder_url = api.upload_folder(
+                    repo_id=repo_url.repo_id, folder_path=merged_path / "merge"
+                )
+                print(f"Model successfully uploaded to {folder_url}")
 
-            yield runner.log(f"Model successfully uploaded to {folder_url}")
+            yield from runner.run_python(upload_to_repo)
 
 
 with gr.Blocks() as demo:
