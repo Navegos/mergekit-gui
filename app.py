@@ -1,34 +1,46 @@
 import pathlib
 import tempfile
-from typing import Generator
+from typing import Iterable, List
 
 import gradio as gr
 import huggingface_hub
 import torch
 import yaml
-from gradio_logsview.logsview import LogsView, LogsViewRunner
-from mergekit.common import parse_kmb
+from gradio_logsview.logsview import Log, LogsView, LogsViewRunner
 from mergekit.config import MergeConfiguration
-from mergekit.merge import run_merge
-from mergekit.options import MergeOptions
 
 has_gpu = torch.cuda.is_available()
 
-merge_options = (
-    MergeOptions(
-        copy_tokenizer=True,
-        cuda=True,
-        low_cpu_memory=True,
-        write_model_card=True,
-    )
+# Running directly from Python doesn't work well with Gradio+run_process because of:
+# Cannot re-initialize CUDA in forked subprocess. To use CUDA with multiprocessing, you must use the 'spawn' start method
+# Let's use the CLI instead.
+#
+# import mergekit.merge
+# from mergekit.common import parse_kmb
+# from mergekit.options import MergeOptions
+#
+# merge_options = (
+#     MergeOptions(
+#         copy_tokenizer=True,
+#         cuda=True,
+#         low_cpu_memory=True,
+#         write_model_card=True,
+#     )
+#     if has_gpu
+#     else MergeOptions(
+#         allow_crimes=True,
+#         out_shard_size=parse_kmb("1B"),
+#         lazy_unpickle=True,
+#         write_model_card=True,
+#     )
+# )
+
+cli = "mergekit-yaml config.yaml merge --copy-tokenizer" + (
+    " --cuda --low-cpu-memory"
     if has_gpu
-    else MergeOptions(
-        allow_crimes=True,
-        out_shard_size=parse_kmb("1B"),
-        lazy_unpickle=True,
-        write_model_card=True,
-    )
+    else " --allow-crimes --out-shard-size 1B --lazy-unpickle"
 )
+
 ## This Space is heavily inspired by LazyMergeKit by Maxime Labonne
 ## https://colab.research.google.com/drive/1obulZ1ROXHjYLn6PPZJwRR6GzgQogxxb
 
@@ -78,8 +90,8 @@ examples = [[str(f)] for f in pathlib.Path("examples").glob("*.yml")]
 
 
 def merge(
-    example_filename: str, yaml_config: str, hf_token: str | None, repo_name: str | None
-) -> Generator[str, None, None]:
+    yaml_config: str, hf_token: str | None, repo_name: str | None
+) -> Iterable[List[Log]]:
     if not yaml_config:
         raise gr.Error("Empty yaml, pick an example below")
     try:
@@ -101,7 +113,9 @@ def merge(
             name = "-".join(
                 model.model.path for model in merge_config.referenced_models()
             )
-            repo_name = f"mergekit-{merge_config.merge_method}-{name}".replace("/", "-").strip("-")
+            repo_name = f"mergekit-{merge_config.merge_method}-{name}".replace(
+                "/", "-"
+            ).strip("-")
             if len(repo_name) > 50:
                 repo_name = repo_name[:25] + "-etc-" + repo_name[25:]
             runner.log(f"Will save merged in {repo_name} once process is done.")
@@ -111,17 +125,12 @@ def merge(
                 "No token provided, merge will run in dry-run mode (no upload at the end of the process)."
             )
 
-        # Taken from https://github.com/arcee-ai/mergekit/blob/main/mergekit/scripts/run_yaml.py
-        yield from runner.run_python(
-            run_merge,
-            merge_config=merge_config,
-            out_path=str(merged_path),
-            options=merge_options,
-            config_source=str(config_path),
-        )
+        yield from runner.run_command(cli.split(), cwd=merged_path)
 
         if runner.exit_code != 0:
-            yield runner.log("Merge failed. Terminating here. No model has been uploaded.")
+            yield runner.log(
+                "Merge failed. Terminating here. No model has been uploaded."
+            )
             return
 
         if hf_token is not None:
@@ -168,6 +177,6 @@ with gr.Blocks() as demo:
     )
     gr.Markdown(MARKDOWN_ARTICLE)
 
-    button.click(fn=merge, inputs=[filename, config, token, repo_name], outputs=[logs])
+    button.click(fn=merge, inputs=[config, token, repo_name], outputs=[logs])
 
 demo.queue(default_concurrency_limit=1).launch()
