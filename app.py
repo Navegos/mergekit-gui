@@ -1,4 +1,6 @@
 import pathlib
+import random
+import string
 import tempfile
 from typing import Iterable, List
 
@@ -36,9 +38,7 @@ has_gpu = torch.cuda.is_available()
 # )
 
 cli = "mergekit-yaml config.yaml merge --copy-tokenizer" + (
-    " --cuda --low-cpu-memory"
-    if has_gpu
-    else " --allow-crimes --out-shard-size 1B --lazy-unpickle"
+    " --cuda --low-cpu-memory" if has_gpu else " --allow-crimes --out-shard-size 1B --lazy-unpickle"
 )
 
 ## This Space is heavily inspired by LazyMergeKit by Maxime Labonne
@@ -89,17 +89,22 @@ A quick overview of the currently supported merge methods:
 examples = [[str(f)] for f in pathlib.Path("examples").glob("*.yml")]
 
 
-def merge(
-    yaml_config: str, hf_token: str | None, repo_name: str | None
-) -> Iterable[List[Log]]:
+def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]]:
+    runner = LogsViewRunner()
+
     if not yaml_config:
-        raise gr.Error("Empty yaml, pick an example below")
+        yield runner.log("Empty yaml, pick an example below", level="ERROR")
+        return
     try:
         merge_config = MergeConfiguration.model_validate(yaml.safe_load(yaml_config))
     except Exception as e:
-        raise gr.Error(f"Invalid yaml {e}")
+        yield runner.log(f"Invalid yaml {e}", level="ERROR")
+        return
 
-    runner = LogsViewRunner()
+    if not hf_token:
+        yield runner.log("You must provide a write-access token.", level="ERROR")
+        return
+    api = huggingface_hub.HfApi(token=hf_token)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = pathlib.Path(tmpdirname)
@@ -109,44 +114,35 @@ def merge(
         config_path.write_text(yaml_config)
         yield runner.log(f"Merge configuration saved in {config_path}")
 
-        if token is not None and repo_name == "":
-            name = "-".join(
-                model.model.path for model in merge_config.referenced_models()
-            )
-            repo_name = f"mergekit-{merge_config.merge_method}-{name}".replace(
-                "/", "-"
-            ).strip("-")
-            if len(repo_name) > 50:
-                repo_name = repo_name[:25] + "-etc-" + repo_name[25:]
-            runner.log(f"Will save merged in {repo_name} once process is done.")
+        if not repo_name:
+            yield runner.log("No repo name provided. Generating a random one.")
+            repo_name = f"mergekit-{merge_config.merge_method}"
+            # Make repo_name "unique" (no need to be extra careful on uniqueness)
+            repo_name += "-" + "".join(random.choices(string.ascii_lowercase, k=7))
+            repo_name = repo_name.replace("/", "-").strip("-")
 
-        if token is None:
-            yield runner.log(
-                "No token provided, merge will run in dry-run mode (no upload at the end of the process)."
-            )
+        try:
+            yield runner.log(f"Creating repo {repo_name}")
+            repo_url = api.create_repo(repo_name, exist_ok=True)
+            yield runner.log(f"Repo created: {repo_url}")
+        except Exception as e:
+            yield runner.log(f"Error creating repo {e}", level="ERROR")
+            return
 
         yield from runner.run_command(cli.split(), cwd=merged_path)
 
         if runner.exit_code != 0:
-            yield runner.log(
-                "Merge failed. Terminating here. No model has been uploaded."
-            )
+            yield runner.log("Merge failed. Deleting repo as no model is uploaded.", level="ERROR")
+            api.delete_repo(repo_url.repo_id)
             return
 
-        if hf_token is not None:
-
-            def upload_to_repo():
-                api = huggingface_hub.HfApi(token=hf_token)
-                print("Creating repo")
-                repo_url = api.create_repo(repo_name, exist_ok=True)
-                print(f"Repo created: {repo_url}")
-                print("Starting upload")
-                folder_url = api.upload_folder(
-                    repo_id=repo_url.repo_id, folder_path=merged_path / "merge"
-                )
-                print(f"Model successfully uploaded to {folder_url}")
-
-            yield from runner.run_python(upload_to_repo)
+        yield runner.log("Model merged successfully. Uploading to HF.")
+        yield from runner.run_python(
+            api.upload_folder,
+            repo_id=repo_url.repo_id,
+            folder_path=merged_path / "merge",
+        )
+        yield runner.log("Model successfully uploaded to HF.")
 
 
 with gr.Blocks() as demo:
@@ -161,12 +157,12 @@ with gr.Blocks() as demo:
                 label="HF Write Token",
                 info="https://hf.co/settings/token",
                 type="password",
-                placeholder="optional, will not upload merge if empty (dry-run)",
+                placeholder="Mandatory. Used to upload the merged model.",
             )
             repo_name = gr.Textbox(
                 lines=1,
                 label="Repo name",
-                placeholder="optional, will create a random name if empty",
+                placeholder="Optional. Will create a random name if empty.",
             )
     button = gr.Button("Merge", variant="primary")
     logs = LogsView()
