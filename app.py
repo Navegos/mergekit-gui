@@ -176,7 +176,7 @@ def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]
             repo_id=repo_url.repo_id,
             folder_path=merged_path / "merge",
         )
-        yield runner.log("Model successfully uploaded to HF.")
+        yield runner.log(f"Model successfully uploaded to HF: {repo_url.repo_id}")
 
 
 with gr.Blocks() as demo:
@@ -199,7 +199,7 @@ with gr.Blocks() as demo:
                 placeholder="Optional. Will create a random name if empty.",
             )
     button = gr.Button("Merge", variant="primary")
-    logs = LogsView()
+    logs = LogsView(label="Terminal output")
     gr.Examples(
         examples,
         fn=lambda s: (s,),
