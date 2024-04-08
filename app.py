@@ -41,10 +41,6 @@ cli = "mergekit-yaml config.yaml merge --copy-tokenizer" + (
     " --cuda --low-cpu-memory" if has_gpu else " --allow-crimes --out-shard-size 1B --lazy-unpickle"
 )
 
-## This Space is heavily inspired by LazyMergeKit by Maxime Labonne
-## https://colab.research.google.com/drive/1obulZ1ROXHjYLn6PPZJwRR6GzgQogxxb
-
-
 MARKDOWN_DESCRIPTION = """
 # mergekit-gui
 
@@ -84,6 +80,22 @@ A quick overview of the currently supported merge methods:
 | Passthrough                                                                                  | `passthrough`        | ❌          | ❌              |
 | [Model Stock](https://arxiv.org/abs/2403.19522)                                              | `model_stock`        | ✅          | ✅              |
 
+
+## Citation
+
+This GUI is powered by [Arcee's MergeKit](https://arxiv.org/abs/2403.13257).
+If you use it in your research, please cite the following paper:
+
+```
+@article{goddard2024arcee,
+  title={Arcee's MergeKit: A Toolkit for Merging Large Language Models},
+  author={Goddard, Charles and Siriwardhana, Shamane and Ehghaghi, Malikeh and Meyers, Luke and Karpukhin, Vlad and Benedict, Brian and McQuade, Mark and Solawetz, Jacob},
+  journal={arXiv preprint arXiv:2403.13257},
+  year={2024}
+}
+```
+
+This Space is heavily inspired by LazyMergeKit by Maxime Labonne (see [Colab](https://colab.research.google.com/drive/1obulZ1ROXHjYLn6PPZJwRR6GzgQogxxb)).
 """
 
 examples = [[str(f)] for f in pathlib.Path("examples").glob("*.yml")]
