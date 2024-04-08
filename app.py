@@ -1,3 +1,4 @@
+import os
 import pathlib
 import random
 import string
@@ -100,6 +101,11 @@ This Space is heavily inspired by LazyMergeKit by Maxime Labonne (see [Colab](ht
 
 examples = [[str(f)] for f in pathlib.Path("examples").glob("*.yml")]
 
+# Do not set community token as `HF_TOKEN` to avoid accidentally using it in merge scripts.
+# `COMMUNITY_HF_TOKEN` is used to upload models to the community organization (https://huggingface.co/mergekit-community)
+# when user do not provide a token.
+COMMUNITY_HF_TOKEN = os.getenv("COMMUNITY_HF_TOKEN")
+
 
 def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]]:
     runner = LogsViewRunner()
@@ -113,9 +119,22 @@ def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]
         yield runner.log(f"Invalid yaml {e}", level="ERROR")
         return
 
+    is_community_model = False
     if not hf_token:
-        yield runner.log("You must provide a write-access token.", level="ERROR")
-        return
+        if "/" in repo_name and not repo_name.startswith("mergekit-community/"):
+            yield runner.log(
+                f"Cannot upload merge model to namespace {repo_name.split('/')[0]}: you must provide a valid token.",
+                level="ERROR",
+            )
+            return
+        yield runner.log(
+            "No HF token provided. Your merged model will be uploaded to the https://huggingface.co/mergekit-community organization."
+        )
+        is_community_model = True
+        if not COMMUNITY_HF_TOKEN:
+            raise gr.Error("Cannot upload to community org: community token not set by Space owner.")
+        hf_token = COMMUNITY_HF_TOKEN
+
     api = huggingface_hub.HfApi(token=hf_token)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -132,6 +151,9 @@ def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]
             # Make repo_name "unique" (no need to be extra careful on uniqueness)
             repo_name += "-" + "".join(random.choices(string.ascii_lowercase, k=7))
             repo_name = repo_name.replace("/", "-").strip("-")
+
+        if is_community_model and not repo_name.startswith("mergekit-community/"):
+            repo_name = f"mergekit-community/{repo_name}"
 
         try:
             yield runner.log(f"Creating repo {repo_name}")
@@ -169,7 +191,7 @@ with gr.Blocks() as demo:
                 label="HF Write Token",
                 info="https://hf.co/settings/token",
                 type="password",
-                placeholder="Mandatory. Used to upload the merged model.",
+                placeholder="Optional. Will upload merged model to MergeKit Community if empty.",
             )
             repo_name = gr.Textbox(
                 lines=1,
