@@ -163,8 +163,10 @@ def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]
             yield runner.log(f"Error creating repo {e}", level="ERROR")
             return
 
-        # Set tmp HF_HOME to avoid filling up disk Space 
-        yield from runner.run_command((f"HF_HOME='{tmpdirname}/.cache' " + cli).split(), cwd=merged_path)
+        # Set tmp HF_HOME to avoid filling up disk Space
+        tmp_env = os.environ.copy() # taken from https://stackoverflow.com/a/4453495
+        tmp_env["HF_HOME"] = f"{tmpdirname}/.cache"
+        yield from runner.run_command(cli.split(), cwd=merged_path, env=tmp_env)
 
         if runner.exit_code != 0:
             yield runner.log("Merge failed. Deleting repo as no model is uploaded.", level="ERROR")
