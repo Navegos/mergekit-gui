@@ -141,7 +141,7 @@ def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]
 
     api = huggingface_hub.HfApi(token=hf_token)
 
-    with tempfile.TemporaryDirectory() as tmpdirname:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdirname:
         tmpdir = pathlib.Path(tmpdirname)
         merged_path = tmpdir / "merged"
         merged_path.mkdir(parents=True, exist_ok=True)
