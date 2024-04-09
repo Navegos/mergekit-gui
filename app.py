@@ -3,6 +3,8 @@ import pathlib
 import random
 import string
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Iterable, List
 
 import gradio as gr
@@ -11,6 +13,8 @@ import torch
 import yaml
 from gradio_logsview.logsview import Log, LogsView, LogsViewRunner
 from mergekit.config import MergeConfiguration
+
+from clean_community_org import garbage_collect_empty_models
 
 has_gpu = torch.cuda.is_available()
 
@@ -164,7 +168,7 @@ def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]
             return
 
         # Set tmp HF_HOME to avoid filling up disk Space
-        tmp_env = os.environ.copy() # taken from https://stackoverflow.com/a/4453495
+        tmp_env = os.environ.copy()  # taken from https://stackoverflow.com/a/4453495
         tmp_env["HF_HOME"] = f"{tmpdirname}/.cache"
         yield from runner.run_command(cli.split(), cwd=merged_path, env=tmp_env)
 
@@ -214,5 +218,20 @@ with gr.Blocks() as demo:
     gr.Markdown(MARKDOWN_ARTICLE)
 
     button.click(fn=merge, inputs=[config, token, repo_name], outputs=[logs])
+
+
+# Run garbage collection every hour to keep the community org clean.
+# Empty models might exists if the merge fails abruptly (e.g. if user leaves the Space).
+def _garbage_collect_every_hour():
+    while True:
+        try:
+            garbage_collect_empty_models(token=COMMUNITY_HF_TOKEN)
+        except Exception as e:
+            print("Error running garbage collection", e)
+        time.sleep(3600)
+
+
+pool = ThreadPoolExecutor()
+pool.submit(_garbage_collect_every_hour)
 
 demo.queue(default_concurrency_limit=1).launch()
