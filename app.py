@@ -103,7 +103,7 @@ If you use it in your research, please cite the following paper:
 This Space is heavily inspired by LazyMergeKit by Maxime Labonne (see [Colab](https://colab.research.google.com/drive/1obulZ1ROXHjYLn6PPZJwRR6GzgQogxxb)).
 """
 
-examples = [[str(f)] for f in pathlib.Path("examples").glob("*.yml")]
+examples = [[str(f)] for f in pathlib.Path("examples").glob("*.yaml")]
 
 # Do not set community token as `HF_TOKEN` to avoid accidentally using it in merge scripts.
 # `COMMUNITY_HF_TOKEN` is used to upload models to the community organization (https://huggingface.co/mergekit-community)
