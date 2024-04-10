@@ -18,7 +18,6 @@ def garbage_collect_empty_models(token: str | None = None):
     for model in api.list_models(author="mergekit-community", full=True):
         if model.siblings and len(model.siblings) > 1:
             # If model has files, then it's not empty
-            print("Skipping", model.modelId, "(not empty)")
             continue
         if (now - model.last_modified).total_seconds() < 3600:
             # If model was updated in the last hour, then keep it
