@@ -170,7 +170,8 @@ def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]
         # Set tmp HF_HOME to avoid filling up disk Space
         tmp_env = os.environ.copy()  # taken from https://stackoverflow.com/a/4453495
         tmp_env["HF_HOME"] = f"{tmpdirname}/.cache"
-        yield from runner.run_command(cli.split(), cwd=merged_path, env=tmp_env)
+        full_cli = cli + f" --lora-merge-cache {tmpdirname}/.lora_cache"
+        yield from runner.run_command(full_cli.split(), cwd=merged_path, env=tmp_env)
 
         if runner.exit_code != 0:
             yield runner.log("Merge failed. Deleting repo as no model is uploaded.", level="ERROR")
