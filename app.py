@@ -43,7 +43,7 @@ has_gpu = torch.cuda.is_available()
 # )
 
 cli = "mergekit-yaml config.yaml merge --copy-tokenizer" + (
-    " --cuda --low-cpu-memory" if has_gpu else " --allow-crimes --out-shard-size 1B --lazy-unpickle"
+    " --cuda --low-cpu-memory --allow-crimes" if has_gpu else " --allow-crimes --out-shard-size 1B --lazy-unpickle"
 )
 
 MARKDOWN_DESCRIPTION = """
