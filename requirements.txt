@@ -1,3 +1,4 @@
+apscheduler
 torch
 git+https://github.com/arcee-ai/mergekit.git
 # see https://huggingface.co/spaces/Wauplin/gradio_logsview
