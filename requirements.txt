@@ -2,3 +2,4 @@ torch
 git+https://github.com/arcee-ai/mergekit.git
 # see https://huggingface.co/spaces/Wauplin/gradio_logsview
 gradio_logsview@https://huggingface.co/spaces/Wauplin/gradio_logsview/resolve/main/gradio_logsview-0.0.5-py3-none-any.whl
+fastapi==0.112.2
