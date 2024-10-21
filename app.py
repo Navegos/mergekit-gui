@@ -11,6 +11,7 @@ import gradio as gr
 import huggingface_hub
 import torch
 import yaml
+import bitsandbytes
 from gradio_logsview.logsview import Log, LogsView, LogsViewRunner
 from mergekit.config import MergeConfiguration
 
@@ -43,7 +44,7 @@ has_gpu = torch.cuda.is_available()
 # )
 
 cli = "mergekit-yaml config.yaml merge --copy-tokenizer" + (
-    " --cuda --low-cpu-memory --allow-crimes" if has_gpu else " --allow-crimes --out-shard-size 1B --lazy-unpickle"
+    " --cuda --low-cpu-memory --allow-crimes" if has_gpu else " --allow-crimes --lazy-unpickle"
 )
 
 MARKDOWN_DESCRIPTION = """
@@ -111,17 +112,19 @@ examples = [[str(f)] for f in pathlib.Path("examples").glob("*.yaml")]
 COMMUNITY_HF_TOKEN = os.getenv("COMMUNITY_HF_TOKEN")
 
 
-def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]]:
+def merge(program: str, yaml_config: str, out_shard_size: str, hf_token: str, repo_name: str) -> Iterable[List[Log]]:
     runner = LogsViewRunner()
 
     if not yaml_config:
         yield runner.log("Empty yaml, pick an example below", level="ERROR")
         return
-    try:
-        merge_config = MergeConfiguration.model_validate(yaml.safe_load(yaml_config))
-    except Exception as e:
-        yield runner.log(f"Invalid yaml {e}", level="ERROR")
-        return
+    # TODO: validate moe config and mega config?
+    if program not in ("mergekit-moe", "mergekit-mega"):
+        try:
+            merge_config = MergeConfiguration.model_validate(yaml.safe_load(yaml_config))
+        except Exception as e:
+            yield runner.log(f"Invalid yaml {e}", level="ERROR")
+            return
 
     is_community_model = False
     if not hf_token:
@@ -170,7 +173,7 @@ def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]
         # Set tmp HF_HOME to avoid filling up disk Space
         tmp_env = os.environ.copy()  # taken from https://stackoverflow.com/a/4453495
         tmp_env["HF_HOME"] = f"{tmpdirname}/.cache"
-        full_cli = cli + f" --lora-merge-cache {tmpdirname}/.lora_cache"
+        full_cli = f"{program} {cli} --lora-merge-cache {tmpdirname}/.lora_cache --out-shard-size {out_shard_size}"
         yield from runner.run_command(full_cli.split(), cwd=merged_path, env=tmp_env)
 
         if runner.exit_code != 0:
@@ -187,27 +190,139 @@ def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]
         yield runner.log(f"Model successfully uploaded to HF: {repo_url.repo_id}")
 
 
+def extract(finetuned_model: str, base_model: str, rank: int, hf_token: str, repo_name: str) -> Iterable[List[Log]]:
+    runner = LogsViewRunner()
+    if not finetuned_model or not base_model:
+        yield runner.log("All field should be filled")
+
+    is_community_model = False
+    if not hf_token:
+        if "/" in repo_name and not repo_name.startswith("mergekit-community/"):
+            yield runner.log(
+                f"Cannot upload merge model to namespace {repo_name.split('/')[0]}: you must provide a valid token.",
+                level="ERROR",
+            )
+            return
+        yield runner.log(
+            "No HF token provided. Your lora will be uploaded to the https://huggingface.co/mergekit-community organization."
+        )
+        is_community_model = True
+        if not COMMUNITY_HF_TOKEN:
+            raise gr.Error("Cannot upload to community org: community token not set by Space owner.")
+        hf_token = COMMUNITY_HF_TOKEN
+
+    api = huggingface_hub.HfApi(token=hf_token)
+
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdirname:
+        tmpdir = pathlib.Path(tmpdirname)
+        merged_path = tmpdir / "merged"
+        merged_path.mkdir(parents=True, exist_ok=True)
+
+        if not repo_name:
+            yield runner.log("No repo name provided. Generating a random one.")
+            repo_name = "lora"
+            # Make repo_name "unique" (no need to be extra careful on uniqueness)
+            repo_name += "-" + "".join(random.choices(string.ascii_lowercase, k=7))
+            repo_name = repo_name.replace("/", "-").strip("-")
+
+        if is_community_model and not repo_name.startswith("mergekit-community/"):
+            repo_name = f"mergekit-community/{repo_name}"
+
+        try:
+            yield runner.log(f"Creating repo {repo_name}")
+            repo_url = api.create_repo(repo_name, exist_ok=True)
+            yield runner.log(f"Repo created: {repo_url}")
+        except Exception as e:
+            yield runner.log(f"Error creating repo {e}", level="ERROR")
+            return
+
+        # Set tmp HF_HOME to avoid filling up disk Space
+        tmp_env = os.environ.copy()  # taken from https://stackoverflow.com/a/4453495
+        tmp_env["HF_HOME"] = f"{tmpdirname}/.cache"
+        full_cli = f"mergekit-extract-lora {finetuned_model} {base_model} lora --rank={rank}"
+        yield from runner.run_command(full_cli.split(), cwd=merged_path, env=tmp_env)
+
+        if runner.exit_code != 0:
+            yield runner.log("Lora extraction failed. Deleting repo as no lora is uploaded.", level="ERROR")
+            api.delete_repo(repo_url.repo_id)
+            return
+
+        yield runner.log("Lora extracted successfully. Uploading to HF.")
+        yield from runner.run_python(
+            api.upload_folder,
+            repo_id=repo_url.repo_id,
+            folder_path=merged_path / "lora",
+        )
+        yield runner.log(f"Lora successfully uploaded to HF: {repo_url.repo_id}")
+
+
 with gr.Blocks() as demo:
     gr.Markdown(MARKDOWN_DESCRIPTION)
 
-    with gr.Row():
-        filename = gr.Textbox(visible=False, label="filename")
-        config = gr.Code(language="yaml", lines=10, label="config.yaml")
-        with gr.Column():
-            token = gr.Textbox(
-                lines=1,
-                label="HF Write Token",
-                info="https://hf.co/settings/token",
-                type="password",
-                placeholder="Optional. Will upload merged model to MergeKit Community if empty.",
-            )
-            repo_name = gr.Textbox(
-                lines=1,
-                label="Repo name",
-                placeholder="Optional. Will create a random name if empty.",
-            )
-    button = gr.Button("Merge", variant="primary")
-    logs = LogsView(label="Terminal output")
+    with gr.Tabs():
+        with gr.TabItem("Merge Model"):
+            with gr.Row():
+                filename = gr.Textbox(visible=False, label="filename")
+                config = gr.Code(language="yaml", lines=10, label="config.yaml")
+                with gr.Column():
+                    program = gr.Dropdown(
+                        ["mergekit-yaml", "mergekit-mega", "mergekit-moe"],
+                        label="Mergekit Command",
+                        info="Choose CLI",
+                    )
+                    out_shard_size = gr.Dropdown(
+                        ["500M", "1B", "2B", "3B", "4B", "5B"],
+                        label="Output Shard Size",
+                        value="500M",
+                    )
+                    token = gr.Textbox(
+                        lines=1,
+                        label="HF Write Token",
+                        info="https://hf.co/settings/token",
+                        type="password",
+                        placeholder="Optional. Will upload merged model to MergeKit Community if empty.",
+                    )
+                    repo_name = gr.Textbox(
+                        lines=1,
+                        label="Repo name",
+                        placeholder="Optional. Will create a random name if empty.",
+                    )
+            button = gr.Button("Merge", variant="primary")
+            logs = LogsView(label="Terminal output")
+            button.click(fn=merge, inputs=[program, config, out_shard_size, token, repo_name], outputs=[logs])
+
+        with gr.TabItem("LORA Extraction"):
+            with gr.Row():
+                with gr.Column():
+                    finetuned_model = gr.Textbox(
+                        lines=1,
+                        label="Finetuned Model",
+                    )
+                    base_model = gr.Textbox(
+                        lines=1,
+                        label="Base Model",
+                    )
+                    rank = gr.Dropdown(
+                        [32, 64, 128],
+                        label="Rank level",
+                        value=32,
+                    )
+                with gr.Column():
+                    token = gr.Textbox(
+                        lines=1,
+                        label="HF Write Token",
+                        info="https://hf.co/settings/token",
+                        type="password",
+                        placeholder="Optional. Will upload merged model to MergeKit Community if empty.",
+                    )
+                    repo_name = gr.Textbox(
+                        lines=1,
+                        label="Repo name",
+                        placeholder="Optional. Will create a random name if empty.",
+                    )
+                    button = gr.Button("Extract LORA", variant="primary")
+            logs = LogsView(label="Terminal output")
+            button.click(fn=extract, inputs=[finetuned_model, base_model, rank, token, repo_name], outputs=[logs])
     gr.Examples(
         examples,
         fn=lambda s: (s,),
@@ -218,11 +333,9 @@ with gr.Blocks() as demo:
     )
     gr.Markdown(MARKDOWN_ARTICLE)
 
-    button.click(fn=merge, inputs=[config, token, repo_name], outputs=[logs])
-
 
 # Run garbage collection every hour to keep the community org clean.
-# Empty models might exists if the merge fails abruptly (e.g. if user leaves the Space).
+# Empty models might exist if the merge fails abruptly (e.g. if user leaves the Space).
 def _garbage_collect_every_hour():
     while True:
         try:
