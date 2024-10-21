@@ -43,7 +43,7 @@ has_gpu = torch.cuda.is_available()
 #     )
 # )
 
-cli = "mergekit-yaml config.yaml merge --copy-tokenizer" + (
+cli = "config.yaml merge --copy-tokenizer" + (
     " --cuda --low-cpu-memory --allow-crimes" if has_gpu else " --allow-crimes --lazy-unpickle"
 )
 
