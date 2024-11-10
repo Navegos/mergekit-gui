@@ -15,6 +15,8 @@ from gradio_logsview.logsview import Log, LogsView, LogsViewRunner
 from mergekit.config import MergeConfiguration
 
 from clean_community_org import garbage_collect_empty_models
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime, timezone
 
 has_gpu = torch.cuda.is_available()
 
@@ -186,10 +188,29 @@ def merge(yaml_config: str, hf_token: str, repo_name: str) -> Iterable[List[Log]
         )
         yield runner.log(f"Model successfully uploaded to HF: {repo_url.repo_id}")
 
+# This is workaround. As the space always getting stuck.
+def _restart_space():
+    huggingface_hub.HfApi().restart_space(repo_id="arcee-ai/mergekit-gui", token=COMMUNITY_HF_TOKEN, factory_reboot=False)
+# Run garbage collection every hour to keep the community org clean.
+# Empty models might exists if the merge fails abruptly (e.g. if user leaves the Space).
+def _garbage_remover():
+    try:
+        garbage_collect_empty_models(token=COMMUNITY_HF_TOKEN)
+    except Exception as e:
+        print("Error running garbage collection", e)
+
+scheduler = BackgroundScheduler()
+restart_space_job = scheduler.add_job(_restart_space, "interval", seconds=21600)
+garbage_remover_job = scheduler.add_job(_garbage_remover, "interval", seconds=3600)
+scheduler.start()
+next_run_time_utc = restart_space_job.next_run_time.astimezone(timezone.utc)
+
+NEXT_RESTART = f"Next Restart: {next_run_time_utc.strftime('%Y-%m-%d %H:%M:%S')} (UTC)"
 
 with gr.Blocks() as demo:
     gr.Markdown(MARKDOWN_DESCRIPTION)
-
+    gr.Markdown(NEXT_RESTART)
+    
     with gr.Row():
         filename = gr.Textbox(visible=False, label="filename")
         config = gr.Code(language="yaml", lines=10, label="config.yaml")
@@ -221,18 +242,5 @@ with gr.Blocks() as demo:
     button.click(fn=merge, inputs=[config, token, repo_name], outputs=[logs])
 
 
-# Run garbage collection every hour to keep the community org clean.
-# Empty models might exists if the merge fails abruptly (e.g. if user leaves the Space).
-def _garbage_collect_every_hour():
-    while True:
-        try:
-            garbage_collect_empty_models(token=COMMUNITY_HF_TOKEN)
-        except Exception as e:
-            print("Error running garbage collection", e)
-        time.sleep(3600)
-
-
-pool = ThreadPoolExecutor()
-pool.submit(_garbage_collect_every_hour)
 
 demo.queue(default_concurrency_limit=1).launch()
