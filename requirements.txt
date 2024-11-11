@@ -1,3 +1,4 @@
+apscheduler
 torch
 bitsandbytes
 git+https://github.com/arcee-ai/mergekit.git
